@@ -1,0 +1,23 @@
+node_modules
+.env
+
+# Hardhat files
+/cache
+/artifacts
+
+# TypeChain files
+/typechain
+/typechain-types
+
+# solidity-coverage files
+/coverage
+/coverage.json
+
+/contracts/.deps
+/contracts/artifacts
+/contracts/.prettierrc.json
+/contracts/draft.txt
+/contracts/tokens/artifacts
+/contracts/strategies/artifacts
+/contracts/tokens/artifacts
+# hardhat.config.ts
