@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 contract RoundDown {
     function _roundDownERC20Balance(
         address token,
+        uint256 userBalance,
         address sender
     ) internal view returns (uint256 remainder) {
         // Get ERC20 token contract
@@ -14,7 +15,8 @@ contract RoundDown {
         );
 
         // Get the balance of the sender in the ERC20 token
-        uint256 balance = erc20.balanceOf(sender);
+        // uint256 balance = erc20.balanceOf(sender);
+        uint256 balance = userBalance;
 
         // Convert the balance to a number (remove the 18 decimals)
         uint256 balanceAsNumber = balance / 10 ** erc20.decimals();

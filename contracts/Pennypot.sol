@@ -90,7 +90,6 @@ contract Pennypot is RoundDown, PennyAccessControl, PennyStrategy {
             IStrategy(pot).isWhiteListed(token),
             "token is not allowed in pot"
         );
-
         // Check that token is not opted in for savings
         require(!_isActive(pot, token, msg.sender), "token already opted in");
 
@@ -141,13 +140,29 @@ contract Pennypot is RoundDown, PennyAccessControl, PennyStrategy {
     }
 
     // Perfom remittance to savings pot///
-    function performUpKeep(address token, address sender) external {
+    function performUpKeep(
+        address token,
+        address sender,
+        address consumer
+    ) external {
         //retrieve pot
         address pot = potsByTokens[sender][token];
         require(pot != address(0), "invalid pot");
 
-        //calculate rounddown
-        uint256 amount = _roundDownERC20Balance(token, sender);
+        (
+            bool isActive,
+            uint256 unlockTimestamp,
+            uint256 userShares,
+            uint256 userSerialNumber
+        ) = IStrategy(pot).getTokenDetails(token, sender);
+
+        //check from the cross chain contract instead
+        uint256 userBalance = ICrossChainBalance(consumer).getBalance(
+            userSerialNumber
+        );
+
+        //calculate remainder from rounddown
+        uint256 amount = _roundDownERC20Balance(token, userBalance, sender);
         require(amount > 0, "zero or invalid deposit amount");
 
         //deposit into pot
