@@ -60,29 +60,29 @@ contract MultiCollectionNFT is
     // Function to get the collection ID for a specific token ID
 
     // Claim NFT if user qualifies
-    function claim(uint256 tokenId) external {
-        address user = msg.sender;
+    // function claim(uint256 tokenId) external {
+    //     address user = msg.sender;
 
-        // Check if NFT has been claimed
-        require(!_claimedStatus[tokenId], "NFT already claimed");
+    //     // Check if NFT has been claimed
+    //     require(!_claimedStatus[tokenId], "NFT already claimed");
 
-        // Get the collection ID for the NFT
-        uint256 collectionId = getCollectionId(tokenId);
+    //     // Get the collection ID for the NFT
+    //     uint256 collectionId = getCollectionId(tokenId);
 
-        // Check if the user has an active pot in the Pennypot contract
-        address userPot = PennyContract.getPotsByToken(user);
-        require(userPot != address(0), "User has no active pot on pennypot");
+    //     // Check if the user has an active pot in the Pennypot contract
+    //     address userPot = PennyContract.getPotsByToken(user);
+    //     require(userPot != address(0), "User has no active pot on pennypot");
 
-        // Additional conditions for each collection can be checked here
-        // string memory conditions = _collectionConditions[collectionId];
-        // require(_checkConditions(user, conditions), "Conditions not met");
+    //     // Additional conditions for each collection can be checked here
+    //     // string memory conditions = _collectionConditions[collectionId];
+    //     // require(_checkConditions(user, conditions), "Conditions not met");
 
-        // Mark the NFT as claimed
-        _claimedStatus[tokenId] = true;
+    //     // Mark the NFT as claimed
+    //     _claimedStatus[tokenId] = true;
 
-        // Mint the NFT to the user
-        mint(user, tokenId, collectionId);
-    }
+    //     // Mint the NFT to the user
+    //     mint(user, tokenId, collectionId);
+    // }
 
     // Function to get the collection ID for a specific token ID
     function getCollectionId(uint256 tokenId) public view returns (uint256) {

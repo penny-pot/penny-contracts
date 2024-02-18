@@ -3,26 +3,31 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
-import "../helpers/IStrategy.sol";
+import "../interfaces/IStrategy.sol";
 
 contract SafeLock is Initializable, IStrategy {
+    bytes32 public memberRole;
+    bytes32 public adminRole;
+    uint256 public unlockTimestamp;
+
     //address of  pennypot
     address constant _PENNYPOT =
         address(0xc4a1D0485C0C7e465c56aE8d951bdCd861f40Cd5);
 
     // Token whitelisted for savings
     struct TokenWhitelist {
-        bool isActive;
-        uint256 unlockTimestamp;
         address[] liquidityProviders;
         mapping(address => uint256) shares;
+        mapping(address => bool) isActive;
+        mapping(address => uint256) serialNumber;
     }
 
-    // Addresses of whitelisted tokens
-    address[] public whitelistedTokens; //this is what we'll populate the first time
+    // Addresses of whitelisted tokens by Admin
+    address[] public whitelistedTokens;
 
-    //  ERC-20 tokens to their whitelist status
-    mapping(address => TokenWhitelist) public tokenWhitelist;
+    // A user's optedIn tokens
+    mapping(address => address[]) optedInTokens;
+ mapping(address => TokenWhitelist) private tokenWhitelist;
 
     // Emit Event when a token is whitelisted
     event TokenWhitelisted(address indexed token);
@@ -32,17 +37,32 @@ contract SafeLock is Initializable, IStrategy {
         _;
     }
 
-    function initialize(address[] memory _whitelist) external onlyCore {
+    function initialize(
+        address[] memory _whitelist,
+        bytes32 _memberRole,
+        bytes32 _adminRole,
+        uint256 _lockPeriod
+    ) external onlyCore {
         for (uint256 i = 0; i < _whitelist.length; i++) {
             whitelistedTokens.push(_whitelist[i]);
         }
+        memberRole = _memberRole;
+        adminRole = _adminRole;
+        unlockTimestamp = _lockPeriod;
     }
 
     // Opt in a token for a savings period
-    function optIn(address token, uint256 _lockPeriod) external onlyCore {
-        require(!tokenWhitelist[token].isActive, "Token is aleady active");
-        tokenWhitelist[token].isActive = true;
-        tokenWhitelist[token].unlockTimestamp = block.timestamp + _lockPeriod;
+    function optIn(
+        address token,
+        uint256 serialNumber,
+        address user
+    ) external onlyCore {
+        require(
+            !tokenWhitelist[token].isActive[user],
+            "Token is aleady active"
+        );
+        tokenWhitelist[token].isActive[user] = true;
+        tokenWhitelist[token].serialNumber[user] = serialNumber;
     }
 
     // Deposit tokens into the safe lock
@@ -51,15 +71,26 @@ contract SafeLock is Initializable, IStrategy {
         uint256 amount,
         address sender
     ) external onlyCore {
-        require(_isWhiteListed(token), "Token is not whitelisted");
-        require(tokenWhitelist[token].isActive, "Token drips paused");
+        require(
+            tokenWhitelist[token].isActive[sender],
+            "drips paused or not active"
+        );
         require(
             IERC20(token).transferFrom(sender, address(this), amount),
             "Transfer failed"
         );
-        // Record the deposit
-        tokenWhitelist[token].shares[msg.sender] += amount;
-        tokenWhitelist[token].liquidityProviders.push(msg.sender);
+        address[] storage providers = tokenWhitelist[token].liquidityProviders;
+        bool isProvider = false;
+        for (uint256 i = 0; i < providers.length; i++) {
+            if (providers[i] == sender) {
+                isProvider = true;
+                break;
+            }
+        }
+        if (!isProvider) {
+            providers.push(sender);
+        }
+        tokenWhitelist[token].shares[sender] += amount;
     }
 
     // Whitelist a token
@@ -81,10 +112,7 @@ contract SafeLock is Initializable, IStrategy {
             "Invalid Shares"
         );
         //withdrawal allowed only at eligible time
-        require(
-            tokenWhitelist[token].unlockTimestamp < block.timestamp,
-            "Lock period is not over"
-        );
+        require(unlockTimestamp < block.timestamp, "Lock period is not over");
 
         //transfer token from contract to user
         IERC20(token).transferFrom(address(this), receiver, amount);
@@ -95,12 +123,44 @@ contract SafeLock is Initializable, IStrategy {
 
     // Get Token Details, whitelisted, Active and Unlock timestamp
     function getTokenDetails(
-        address token
-    ) external view returns (bool isActive, uint256 unlockTimestamp) {
+        address token,
+        address user
+    )
+        external
+        view
+        returns (
+            bool isActive,
+            uint256 unlockTimestamp,
+            uint256 userShares,
+            uint256 userSerialNumber
+        )
+    {
         TokenWhitelist storage tokenDetails = tokenWhitelist[token];
-        isActive = tokenDetails.isActive;
-        unlockTimestamp = tokenDetails.unlockTimestamp;
-        return (isActive, unlockTimestamp);
+
+        // Check if the user is a liquidity provider for this token
+        uint256 index;
+        bool found = false;
+        for (uint256 i = 0; i < tokenDetails.liquidityProviders.length; i++) {
+            if (tokenDetails.liquidityProviders[i] == user) {
+                index = i;
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            // Get the user's shares
+            userShares = tokenDetails.shares[user];
+            // Get the user's active status
+            isActive = tokenDetails.isActive[user];
+            // Get the user's serial number
+            userSerialNumber = tokenDetails.serialNumber[user];
+        } else {
+            // User is not a liquidity provider for this token
+            userShares = 0;
+            isActive = false;
+            userSerialNumber = 0;
+        }
+        return (isActive, unlockTimestamp, userShares, userSerialNumber);
     }
 
     // Get token liquidity providers and their shares

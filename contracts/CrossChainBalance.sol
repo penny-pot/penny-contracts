@@ -119,4 +119,21 @@ contract CrossChainBalance is FunctionsClient, ConfirmedOwner {
             }
         }
     }
+    // Function to get the latest serial number
+    function getLatestSerialNumber() external view returns (uint256) {
+        return requestCounter;
+    }
+
+    // Function to get the balance associated with a serialNumber
+    function getBalance(uint256 _serialNumber) external view returns (uint256) {
+        bytes32 id = requestsIDs[_serialNumber];
+        bytes memory response = responses[id].response;
+
+        // Parse the response as a uint256
+        uint256 balanceResult;
+        assembly {
+            balanceResult := mload(add(response, 32))
+        }
+        return balanceResult;
+    }
 }
