@@ -9,10 +9,11 @@ contract SafeLock is Initializable, IStrategy {
     bytes32 public memberRole;
     bytes32 public adminRole;
     uint256 public unlockTimestamp;
+    address public pennyStrategy;
 
     //address of  pennypot
     address constant _PENNYPOT =
-        address(0xc4a1D0485C0C7e465c56aE8d951bdCd861f40Cd5);
+        address(0xE64bC8B0aE893dDE5E2a5268ddde2bb79BE0c80b);
 
     // Token whitelisted for savings
     struct TokenWhitelist {
@@ -27,7 +28,7 @@ contract SafeLock is Initializable, IStrategy {
 
     // A user's optedIn tokens
     mapping(address => address[]) optedInTokens;
- mapping(address => TokenWhitelist) private tokenWhitelist;
+    mapping(address => TokenWhitelist) private tokenWhitelist;
 
     // Emit Event when a token is whitelisted
     event TokenWhitelisted(address indexed token);
@@ -41,14 +42,16 @@ contract SafeLock is Initializable, IStrategy {
         address[] memory _whitelist,
         bytes32 _memberRole,
         bytes32 _adminRole,
-        uint256 _lockPeriod
+        uint256 _lockPeriod,
+        address _strategy
     ) external onlyCore {
         for (uint256 i = 0; i < _whitelist.length; i++) {
             whitelistedTokens.push(_whitelist[i]);
         }
         memberRole = _memberRole;
         adminRole = _adminRole;
-        unlockTimestamp = _lockPeriod;
+        unlockTimestamp = block.timestamp + _lockPeriod;
+        pennyStrategy = _strategy;
     }
 
     // Opt in a token for a savings period
@@ -63,6 +66,7 @@ contract SafeLock is Initializable, IStrategy {
         );
         tokenWhitelist[token].isActive[user] = true;
         tokenWhitelist[token].serialNumber[user] = serialNumber;
+        //I was supposed to push liquidity providers here
     }
 
     // Deposit tokens into the safe lock
@@ -130,7 +134,7 @@ contract SafeLock is Initializable, IStrategy {
         view
         returns (
             bool isActive,
-            uint256 unlockTimestamp,
+            uint256 _unlockTimestamp,
             uint256 userShares,
             uint256 userSerialNumber
         )
@@ -157,8 +161,8 @@ contract SafeLock is Initializable, IStrategy {
         } else {
             // User is not a liquidity provider for this token
             userShares = 0;
-            isActive = false;
-            userSerialNumber = 0;
+            isActive = tokenDetails.isActive[user];
+            userSerialNumber = tokenDetails.serialNumber[user];
         }
         return (isActive, unlockTimestamp, userShares, userSerialNumber);
     }
@@ -187,6 +191,15 @@ contract SafeLock is Initializable, IStrategy {
     // Get all whitelisted tokens
     function getWhitelistedTokens() external view returns (address[] memory) {
         return whitelistedTokens;
+    }
+
+    // Get Penny Strategy for the contract
+    function getPennyStrategy() external view returns (address) {
+        return pennyStrategy;
+    }
+
+    function getRoles() external view returns (bytes32, bytes32) {
+        return (memberRole, adminRole);
     }
 
     // Check if token is whitelisted

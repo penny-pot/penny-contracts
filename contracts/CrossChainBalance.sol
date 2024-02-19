@@ -42,28 +42,24 @@ contract CrossChainBalance is FunctionsClient, ConfirmedOwner {
         bytes err
     );
 
-    constructor(
-        address router
-    ) FunctionsClient(router) ConfirmedOwner(msg.sender) {
+    constructor(address router)
+        FunctionsClient(router)
+        ConfirmedOwner(msg.sender)
+    {
         subscriptionId = 4233;
         gasLimit = 300000;
         donID = "fun-avalanche-fuji-1";
     }
 
-    modifier onlyAllowed() {
-        if (msg.sender != owner() && msg.sender != upkeepContract)
-            revert NotAllowedCaller(msg.sender, owner(), upkeepContract);
-        _;
-    }
-
-    function setAutomationCronContract(
-        address _upkeepContract
-    ) external onlyOwner {
+    function setAutomationCronContract(address _upkeepContract)
+        external
+        onlyOwner
+    {
         require(upkeepContract != address(0), "Invalid contract address");
         upkeepContract = _upkeepContract;
     }
 
-    function updateRequest(bytes memory _request) external onlyOwner {
+    function updateRequest(bytes memory _request) external {
         uint256 serialNumber = ++requestCounter;
         requests[serialNumber] = Request({
             request: _request,
@@ -77,7 +73,7 @@ contract CrossChainBalance is FunctionsClient, ConfirmedOwner {
         emit RequestUpdated(serialNumber);
     }
 
-    function sendRequestCBOR() external onlyAllowed {
+    function sendRequestCBOR() external {
         for (uint256 i = 0; i < activeRequests.length; i++) {
             uint256 requestSerialNumber = activeRequests[i];
             Request storage req = requests[requestSerialNumber];
@@ -110,7 +106,7 @@ contract CrossChainBalance is FunctionsClient, ConfirmedOwner {
         activeRequests.push(serialNumber);
     }
 
-    function removeActiveRequest(uint256 serialNumber) external onlyOwner {
+    function removeActiveRequest(uint256 serialNumber) external {
         for (uint256 i = 0; i < activeRequests.length; i++) {
             if (activeRequests[i] == serialNumber) {
                 activeRequests[i] = activeRequests[activeRequests.length - 1];
@@ -119,6 +115,7 @@ contract CrossChainBalance is FunctionsClient, ConfirmedOwner {
             }
         }
     }
+
     // Function to get the latest serial number
     function getLatestSerialNumber() external view returns (uint256) {
         return requestCounter;

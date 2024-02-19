@@ -6,8 +6,8 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 contract RoundDown {
     function _roundDownERC20Balance(
         address token,
-        uint256 userBalance,
-        address sender
+        uint256 userBalance
+        // address sender
     ) internal view returns (uint256 remainder) {
         // Get ERC20 token contract
         ERC20 erc20 = ERC20(

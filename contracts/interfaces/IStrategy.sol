@@ -9,7 +9,8 @@ interface IStrategy {
         address[] memory _whitelist,
         bytes32 _memberRole,
         bytes32 _adminRole,
-        uint256 _lockPeriod
+        uint256 _lockPeriod,
+        address _strategy
     ) external;
 
     function optIn(address token, uint256 serialNumber, address user) external;
@@ -30,4 +31,7 @@ interface IStrategy {
     ) external returns (address[] memory, uint256[] memory);
 
     function isWhiteListed(address token) external view returns (bool);
+
+    function getPennyStrategy() external view returns (address);
+    function getRoles() external view returns (bytes32, bytes32);
 }

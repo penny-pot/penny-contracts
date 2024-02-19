@@ -6,15 +6,24 @@ import "./interfaces/ICrossChainBalance.sol";
 import "./helpers/RoundDown.sol";
 import "./helpers/PennyAccessControl.sol";
 import "./helpers/PennyStrategy.sol";
+import "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
 
-contract Pennypot is RoundDown, PennyAccessControl, PennyStrategy {
-    uint256 private constant DECIMALS = 18;
-
-    //supported chains
-    enum Chains {
-        Default,
-        Sepolia
+contract Pennypot is
+    AutomationCompatibleInterface,
+    RoundDown,
+    PennyAccessControl,
+    PennyStrategy
+{
+    struct AutomationKeys {
+        address token;
+        address user;
     }
+
+    uint256 private constant interval = 60;
+    uint256 public testBal;
+    address private constant consumer =
+        address(0xCf5c2BBDDD52B85891e0d9Ae8E98649B25Fb8955);
+    AutomationKeys[] public keys;
 
     mapping(address => mapping(uint256 => address)) public equivalentTokens;
 
@@ -36,7 +45,7 @@ contract Pennypot is RoundDown, PennyAccessControl, PennyStrategy {
     );
 
     // Create  Savings Quest
-    function create(
+    function createQuest(
         address pennyStrategy,
         uint256 _lockPeriod,
         address[] memory members,
@@ -58,8 +67,9 @@ contract Pennypot is RoundDown, PennyAccessControl, PennyStrategy {
         IStrategy(pot).initialize(
             tokens,
             Member_ROLE,
-            Member_ROLE,
-            _lockPeriod
+            Admin_ROLE,
+            _lockPeriod,
+            pennyStrategy
         );
 
         // // record the creator's new strategy
@@ -76,7 +86,6 @@ contract Pennypot is RoundDown, PennyAccessControl, PennyStrategy {
     function optIn(
         address pot,
         address token,
-        uint256 lockPeriod,
         bytes memory _request,
         address consumer
     ) external onlyMemberOrAdmin(pot, msg.sender) {
@@ -104,6 +113,21 @@ contract Pennypot is RoundDown, PennyAccessControl, PennyStrategy {
 
         //add pot record to users token
         potsByTokens[msg.sender][token] = pot;
+        (bytes32 memberRole, bytes32 adminRole) = IStrategy(pot).getRoles();
+
+        // If the user is not the admin/creator, add pot record to user's potsByStrategies
+        if (!hasRole(adminRole, msg.sender)) {
+            // Get the strategy address
+            address pennyStrategy = IStrategy(pot).getPennyStrategy();
+            // Calculate strategy hash
+            bytes32 pennyStrategyHash = keccak256(
+                abi.encodePacked(pennyStrategy)
+            );
+            // Add the pot to user's potsByStrategies
+            potsByStrategies[msg.sender][pennyStrategyHash].push(pot);
+        }
+        //start automation
+        keys.push(AutomationKeys(token, msg.sender));
 
         // Emit event
         emit OptIn(msg.sender, token, pot);
@@ -111,79 +135,92 @@ contract Pennypot is RoundDown, PennyAccessControl, PennyStrategy {
 
     // Checks if a remittance is due
     function checkUpkeep(
-        address token,
-        address sender,
-        address consumer
-    ) external view returns (bool upkeepNeeded) {
-        address pot = potsByTokens[sender][token];
+        bytes calldata /* checkData */
+    )
+        external
+        view
+        override
+        returns (
+            bool upkeepNeeded,
+            bytes memory /* performData */
+        )
+    {
+        bool check;
+        for (uint256 i = 0; i < keys.length; i++) {
+            AutomationKeys memory key = keys[i];
+            address pot = potsByTokens[key.user][key.token];
+            (
+                bool isActive,
+                uint256 unlockTimestamp,
+                uint256 userShares,
+                uint256 userSerialNumber
+            ) = IStrategy(pot).getTokenDetails(key.token, key.user);
 
-        if (pot == address(0)) {
-            //return if no pot is found
-            return false;
+            // Check from the cross-chain contract instead
+            uint256 userBalance = ICrossChainBalance(consumer).getBalance(
+                userSerialNumber
+            );
+
+            check =
+                isActive &&
+                block.timestamp < unlockTimestamp &&
+                _checkIfRequiresRoundDown(userBalance);
+            if (check) {
+                break;
+            }
         }
-
-        (
-            bool isActive,
-            uint256 unlockTimestamp,
-            uint256 userShares,
-            uint256 userSerialNumber
-        ) = IStrategy(pot).getTokenDetails(token, sender);
-
-        //check from the cross chain contract instead
-        uint256 userBalance = ICrossChainBalance(consumer).getBalance(
-            userSerialNumber
-        );
-        upkeepNeeded =
-            isActive &&
-            block.timestamp < unlockTimestamp &&
-            _checkIfRequiresRoundDown(userBalance);
+        upkeepNeeded = check;
     }
 
     // Perfom remittance to savings pot///
-    function performUpKeep(
-        address token,
-        address sender,
-        address consumer
-    ) external {
-        //retrieve pot
-        address pot = potsByTokens[sender][token];
-        require(pot != address(0), "invalid pot");
+    function performUpkeep(
+        bytes calldata /* performData */
+    ) external override {
+        for (uint256 i = 0; i < keys.length; i++) {
+            AutomationKeys memory key = keys[i];
+            address pot = potsByTokens[key.user][key.token];
 
-        (
-            bool isActive,
-            uint256 unlockTimestamp,
-            uint256 userShares,
-            uint256 userSerialNumber
-        ) = IStrategy(pot).getTokenDetails(token, sender);
+            (
+                bool isActive,
+                uint256 unlockTimestamp,
+                uint256 userShares,
+                uint256 userSerialNumber
+            ) = IStrategy(pot).getTokenDetails(key.token, key.user);
 
-        //check from the cross chain contract instead
-        uint256 userBalance = ICrossChainBalance(consumer).getBalance(
-            userSerialNumber
-        );
+            // Check from the cross-chain contract instead
+            uint256 userBalance = ICrossChainBalance(consumer).getBalance(
+                userSerialNumber
+            );
 
-        //calculate remainder from rounddown
-        uint256 amount = _roundDownERC20Balance(token, userBalance, sender);
-        require(amount > 0, "zero or invalid deposit amount");
+            testBal = userBalance;
 
-        //deposit into pot
-        IStrategy(pot).deposit(token, amount, sender);
+            // Calculate remainder from rounddown
+            uint256 amount = _roundDownERC20Balance(key.token, userBalance);
 
-        emit Deposit(pot, token, sender, amount);
+            if (isActive && block.timestamp < unlockTimestamp && amount > 0) {
+                // Deposit into pot if upkeep is needed
+                IStrategy(pot).deposit(key.token, amount, key.user);
+                emit Deposit(pot, key.token, key.user, amount);
+            }
+        }
     }
 
     // filter a creator's pots by the Savings strategies they implement
-    function getPotsByStrategies(
-        address pennyStrategy
-    ) external view returns (address[] memory) {
+    function getPotsByStrategies(address pennyStrategy)
+        external
+        view
+        returns (address[] memory)
+    {
         bytes32 PennyStrategyHash = keccak256(abi.encodePacked(pennyStrategy));
         return potsByStrategies[msg.sender][PennyStrategyHash];
     }
 
     // Get token's  active savings pot
-    function getPotsByToken(
-        address token,
-        address user
-    ) external view returns (address) {
+    function getPotsByToken(address token, address user)
+        external
+        view
+        returns (address)
+    {
         return potsByTokens[user][token];
     }
 
@@ -201,20 +238,5 @@ contract Pennypot is RoundDown, PennyAccessControl, PennyStrategy {
         return isActive;
     }
 
-    // Set crosschain equivalent for a token. TODO: Restrict
-    function setEquivalentToken(
-        address mainToken,
-        address equivalentToken,
-        Chains chain
-    ) external {
-        equivalentTokens[mainToken][uint256(chain)] = equivalentToken;
-    }
 
-    // Check crosschain token on the specified chain
-    function checkEquivalentToken(
-        address mainToken,
-        Chains chain
-    ) external view returns (address) {
-        return equivalentTokens[mainToken][uint256(chain)];
-    }
 }
